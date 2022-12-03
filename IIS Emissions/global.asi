@@ -1,0 +1,312 @@
+<!--
+global.asi
+
+Overview: This script is the include file for the emissions database system.  It
+          contains the code for common functions that will be used for multiple
+          pages, connection strings and other shared information.
+Author(s): Ronald J. Cormier (rcormier@wpi.edu)
+           Jared F. McCaffree
+-->
+<!--#include virtual="test/rc4.inc"-->
+
+<%
+Response.Buffer = true
+'*********** Global Vars ***********
+sPathToUpload = "C:\Inetpub\wwwroot\emissions\import_upload\"
+
+'*********** Functions *************
+'ValidateFormAttack()
+'Author(s):	  Matthew M. Barrett
+'Overview:	  The ValidateFormAttack function is called to check for a possible SQL 
+' 		  injection attack entered by a user into a form.
+'Precondition:    A user has entered text into a textbox and submitted a form
+'Postcondition:	  If the text contains an SQL injection attack the malicious
+'		  code is removed.
+'		  Malicious code includes the text: "SELECT", "DROP", "INSERT",
+'		  "--", "'", "DELETE", "XP_", ";", "shutdown with nowait"
+
+
+
+'GenerateSalt()
+'Author(s):	  Matthew M. Barrett
+'Overview:   	  Generates a 15 byte string of random characters from A-Z used
+'                 to encrypt passwords with RC4 encryption
+'Preconditions:   A webpage on the site is loaded
+'Postconditions:  A random 15 byte string is returned
+
+   Function GenerateSalt()
+     Dim Salt					'Random salt key
+
+     Randomize
+     Salt = ""
+     For i=1 to 15
+       'Add 65 because it is decimanl ASCII for 'A'
+       Salt = Salt & chr(int(Rnd * 26) + 65)
+     Next
+     
+     GenerateSalt = Salt
+   End Function  
+
+
+'printHeader(titleString)
+'Authors:        Jared McCaffree
+'Overview:       Prints out the uniform HTML header with the Covanta image,
+'                title and link to main menu.
+'Preconditions:  A webpage on the site is loaded.
+'Postconditions: The header is printed at the top of that webpage.
+
+   Function printHeader (sTitleString)
+      Response.Write("<table  width=100" & chr(37) &">" & vbcrlf)
+      Response.Write("<tr><td><H3>" & sTitleString & "</H3></td>" & vbcrlf)
+      Response.Write("<td align=right><img src=../images/covantalogo.gif></td></tr>" & vbcrlf)
+      Response.Write("</table>" & vbcrlf)
+      Response.Write("<HR><A href=./> Return to Menu</A><BR><BR>" & vbcrlf)
+   End Function
+
+'printFooter
+'Authors:        Jared McCaffree
+'Overview:       Prints out the uniform HTML footer with the WPI image,
+'                link to main menu.
+'Preconditions:  A webpage on the site is loaded.
+'Postconditions: The footer is printed at the bottom of that webpage.
+
+   Function printFooter
+      Response.Write("<BR><A href=./> Return to Menu</A><BR><BR>" & vbcrlf)
+      Response.Write("<HR><CENTER>" & vbcrlf)
+      Response.Write("<IMG src=../images/wpimonogram.gif alt="&chr(34)& _
+                      "A WPI Major Qualifying Project" & chr(34) & ">" & vbcrlf)
+      Response.Write("</CENTER>")
+   End Function
+
+'verifyUser()
+'Authors:        Ron Cormier
+'Overview:       Tests the validUser session variable to see if it is valid
+'                Checks the user's group to see if it can access the page.
+'                If the page's name isn't found in the page table, all groups 
+'                can view it.
+'Preconditions:  None
+'Postconditions: If the variable is set to "valid", the page is displayed
+'                if not, user redirected to login.asp
+   Function verifyUser()
+	  if not Session("validUser") then
+	     Response.Redirect("login.asp")
+	  else
+	     ' get the pages that the user has access to
+		 ' and see if this is one of them
+		 
+	     Dim oConn
+		 Dim objRS
+		 Dim sPageName, sPageID
+		 Dim arrPageNames, arrPageIDs
+		 Dim boolDisplayPage
+		 
+		 ' get the pages the user has access to
+		 connectDB oConn
+		 Set objRS = oConn.Execute("SELECT * FROM grouptable " _
+		    & "WHERE ID = " & Session("GroupID") & ";")
+		 arrPageIDs = split(trim(objRS.fields("accessiblePages")))
+		 
+		 
+		 'get the page name from the page name path
+		 arrPageNames = Split(Request.ServerVariables("SCRIPT_NAME"), "/")
+		 For Each page In arrPageNames
+		    sPageName = trim(page)
+	     Next
+		 
+		 ' actually check if the user is allowed to see the page
+		 Set objRS = oConn.Execute("SELECT * FROM pages WHERE pageName = '"&sPageName&"';")
+		 boolDisplayPage = false
+		 if NOT (objRS.EOF OR objRS.BOF) then
+		    sPageID = trim(objRS.Fields("ID"))
+			For Each pageId In arrPageIDs
+			   if (sPageID = pageId) then
+			      boolDisplayPage = true
+			   end if
+			Next
+	     else
+		    ' if page ins't found in page table, this page isn't important
+		    boolDisplayPage = true
+	     end if
+		 
+		 if (boolDisplayPage = false) then
+		    Response.Redirect("./")
+	     end if
+		 
+		 disconnectDB oConn
+		 
+	  end if
+   End Function
+   
+   
+   
+'connectDB(myConn)
+'Author(s):      Ron Cormier
+'Overview:       Sets up a connection to the database
+'Preconditions:  myConn is  a Dim'ed variable
+'Postconditions: modifies the myConn variable so it is a connection object
+'                connected to the emissions database
+   
+   Function connectDB(myConn)
+      Set myConn = CreateObject("ADODB.Connection")
+	  sDBConnectionString="DRIVER=SQL Server;SERVER=COVANTA2;" & _
+                          "DATABASE=covanta;UID=sa;PWD=monkey2002;"
+      myConn.Open sDBConnectionString
+   End Function
+   
+   
+   
+'disconnectDB(myConn)
+'Authors(s):     Ron Cormier
+'Overview:       Closes the myConn connection and cleans up the variable
+'Preconditions:  myConn is a Dim'ed variable of the type ADODB.Connection
+'Postconditions: Connection is closed and memory is freed
+   
+   Function disconnectDB(myConn)
+      myConn.Close
+      set myConn = Nothing
+   End Function
+   
+   
+' string printPlants(typeHtm, selectedPlantIDs)
+' Author(s):      Jared F. McCaffree
+'                 Ron Cormier
+' Overview:       This function generates the HTML listing of all the plants in
+'                 the plant table of the SQL database.  It can be radio buttons
+'                 checkboxes, or a drop-down list
+' Preconditions:  A listing of all the plants are required to add a user.
+'                 typeHtm determines what is printed out:
+'                 -r for radio buttons
+'                 -c for checkboxes
+'                 -rbr for radio buttons with a <BR> every 5 plants
+'                 selectedPlantIDs are the ID's that will be checked if <> ""
+' Postconditions: A string with the HTML code for the checkbox list is.
+   
+   Function printPlants(typeHtm, selectedPlantIDs)
+      Dim oConn   ' Connection object
+      Dim objRS   ' Recordset object (result of SQL SELECT statement)
+	  Dim iPlantCounter ' counter to break up plants
+	  connectDB oConn
+	
+      Set objRS = oConn.Execute("SELECT * FROM plant ORDER BY plantName")
+	  
+	  
+      Do While Not objRS.EOF
+	     if (typeHtm = "-c") then
+		    if (selectedPlantIDs <> "") then
+			   Dim arrSelPlant   'for breaking up the preselected plants
+			   Dim sChecked
+			   sChecked = ""
+			   arrSelPlant = Split(selectedPlantIDs, ",")
+			   
+			   'set sChecked if the user already had access to this plant
+			   For Each plant In arrSelPlant
+			      if(Trim(objRS.Fields("plantName")) = Trim(plant)) then
+				     sChecked = "CHECKED"
+				  end if
+			   Next
+			   
+			   'make the box
+                   printPlants = printPlants & "<INPUT type=checkbox name="&objRS.Fields("plantName") _
+                   & " value=" & objRS.Fields("plantName") & " "& sChecked&">" _
+                   & objRS.Fields("plantName") & "<BR>" & vbcrlf
+               
+			else
+			   printPlants = printPlants & "<INPUT type=checkbox name="&objRS.Fields("plantName") _
+                  & " value=" & objRS.Fields("plantName") & ">" _
+                  & objRS.Fields("plantName") & "<BR>" & vbcrlf
+		 end if
+		 else 'if (typeHtm = "-r") then
+                    iPlantCounter = iPlantCounter + 1
+		    printPlants = printPlants & "<INPUT type=radio name=plants" _
+                     & " value=" & objRS.Fields("plantName") & ">" _
+                     & objRS.Fields("plantName") & vbcrlf & "<BR>"
+ '		    if iPlantCounter = 5 then
+ '                      iPlantCounter = 0
+ '                      printPlants = printPlants & "<BR>"
+ '                   end if
+		 end if
+         numPlants=numPlants+1
+         objRS.MoveNext
+      loop
+	  
+	  disconnectDB oConn
+   End Function
+   
+   
+   
+' string printGroups(selectedGroupID)
+' Author(s):      Jared F. McCaffree
+'                 Ron Cormier
+' Overview:       This function generates an HTML dropdown box of all the group names in
+'                 the grouptable table of the SQL database.
+' Preconditions:  A listing of all the groups are required to add a user.
+'                 SelectedGroup is optional.  if <> "", that group will be selected
+' Postconditions: A string with the HTML code for the dropdown box is returned.
+
+   Function printGroups(selectedGroupID)
+      Dim oConn   ' Connection object
+      Dim objRS   ' Recordset object (result of SQL SELECT statement)
+	  
+	  connectDB oConn
+	  
+      Set objRS = oConn.Execute("SELECT * FROM grouptable")
+      printGroups = "<SELECT id=groupID name=groupID>" & vbcrlf
+      Do While Not objRS.EOF
+	     if (selectedGroupID <> "") then
+		    if (objRS.Fields("ID") = CInt(selectedGroupID)) then
+               printGroups = printGroups & "<OPTION value=" & objRS.Fields("ID") _
+                       & " SELECTED>" & objRS.Fields("groupName") & "</OPTION>"
+            else
+               printGroups = printGroups & "<OPTION value=" & objRS.Fields("ID") _
+                       & ">" & objRS.Fields("groupName") & "</OPTION>" & vbcrlf
+            end if
+	     else
+		    printGroups = printGroups & "<OPTION value=" & objRS.Fields("ID") _
+                       & ">" & objRS.Fields("groupName") & "</OPTION>" & vbcrlf
+	     end if
+         objRS.MoveNext
+      loop
+      printGroups = printGroups & "</SELECT>"
+	  disconnectDB oConn
+	  
+   End Function
+   
+   
+   
+' string printUsers(typeHtm)
+' Author(s):      Matthew M. Barrett
+' Overview:       This function generates HTML of all the user's
+'                 first and last names in the userstable table of the SQL
+'                 database.
+' Preconditions:  typeHtm determines what is printed out:
+'                 -r for radio buttons
+'                 -c for checkboxes
+'                 
+' Postconditions: A string with the appropriate HTML code is returned.
+
+   Function printUsers(typeHtm)
+      Dim oConn   ' Connection object
+      Dim objRS   ' Recordset object (result of SQL SELECT statement)
+      connectDB oConn
+	
+      Set objRS = oConn.Execute("SELECT * FROM usertable ORDER BY lastName")
+      printUsers = ""
+      Do While Not objRS.EOF
+		 uid=objRS.Fields("userID").value
+		 if (typeHtm = "-r") then
+		    printUsers = printUsers & "<INPUT type=radio name='userIDs'" _
+                     & " value=" & objRS.Fields("userID") & ">" _
+					 & objRS.Fields("lastName") & ", " _
+                     & objRS.Fields("firstName") & "<BR>" & vbcrlf
+		 else 'if (typeHtm = "-c")
+            printUsers = printUsers & "<INPUT type=checkbox name='userIDs' Value="&uid & _
+                    ">" & "<a href = './edituser_handler1.asp?uid="&objRS.Fields("userID") & "'>" _ 
+                   & objRS.Fields("lastName") &", "& objRS.Fields("firstName") _
+		            & "<BR>" & vbcrlf
+		 end if
+
+         objRS.MoveNext
+      loop
+      disconnectDB oConn
+   End Function
+%>
